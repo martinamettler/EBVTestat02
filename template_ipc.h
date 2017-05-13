@@ -13,8 +13,8 @@
 
 /*! @brief set to three to work with color images */
 /* IMPORTANT!!: do a clean after changing this value to ensure rebuild of cgi-script */
-#define NUM_COLORS 1
-
+#define NUM_COLORS 3
+ // comment
 /* The parameter IDs to identify the different requests/responses. */
 enum EnIpcParamIds
 {
