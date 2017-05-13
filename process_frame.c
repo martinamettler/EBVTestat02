@@ -37,6 +37,8 @@ void Dilate_3x3(int InIndex, int OutIndex);
 void DetectRegions();
 void DrawBoundingBoxes();
 void ChangeDetection();
+void YCbCr();
+enum ObjColor wichColor(int o);
 
 void ResetProcess()
 {
@@ -45,6 +47,27 @@ void ResetProcess()
 		ManualThreshold = true;
 	else
 		ManualThreshold = false;
+}
+
+void YCbCr(){
+	int r;
+	int c;
+	for( r = 0; r < nr*nc; r += nc) {
+		//loop over the columns
+		for(c = 0; c < nc; c++) {
+			//get rgb values (order is actually bgr!)
+			float B_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+0];
+			float G_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+1];
+			float R_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+2];
+			uint8 Y_ = (uint8) ( 0 + 0.299*R_ + 0.587*G_ + 0.114*B_);
+			uint8 Cb_ = (uint8) (128 - 0.169*R_ - 0.331*G_ + 0.500*B_);
+			uint8 Cr_ = (uint8) (128 + 0.500*R_ - 0.419*G_ - 0.081*B_);
+			//we write result to XXX
+			data.u8TempImage[INDEX0][(r+c)*NUM_COLORS+0] = Y_;
+			data.u8TempImage[INDEX0][(r+c)*NUM_COLORS+1] = Cb_;
+			data.u8TempImage[INDEX0][(r+c)*NUM_COLORS+2] = Cr_;
+		}
+	}
 }
 
 
@@ -59,11 +82,18 @@ void ProcessFrame() {
 		//Binarize(Threshold);
 
 
-		//Erode_3x3(THRESHOLD, INDEX0);
-		//Dilate_3x3(INDEX0, THRESHOLD);
-		memcpy(data.u8TempImage[THRESHOLD], data.u8TempImage[SENSORIMG], IMG_SIZE);
+
+		//memcpy(data.u8TempImage[THRESHOLD], data.u8TempImage[SENSORIMG], IMG_SIZE);
+
+		YCbCr();
+		memcpy(data.u8TempImage[THRESHOLD], data.u8TempImage[INDEX0], IMG_SIZE);
+		memset(data.u8TempImage[INDEX1], 0, IMG_SIZE);
+
 		ChangeDetection();
 
+		Erode_3x3(INDEX1,THRESHOLD);
+		Dilate_3x3(THRESHOLD, INDEX1);
+		memcpy(data.u8TempImage[THRESHOLD], data.u8TempImage[INDEX1], IMG_SIZE);
 
 		DetectRegions();
 
@@ -204,22 +234,48 @@ void DrawBoundingBoxes() {
 	uint16 o;
 	for(o = 0; o < ImgRegions.noOfObjects; o++) {
 		if(ImgRegions.objects[o].area > MinArea) {
+			enum ObjColor col= wichColor(o);
 			DrawBoundingBox(ImgRegions.objects[o].bboxLeft, ImgRegions.objects[o].bboxTop,
-							ImgRegions.objects[o].bboxRight, ImgRegions.objects[o].bboxBottom, false, GREEN);
+							ImgRegions.objects[o].bboxRight, ImgRegions.objects[o].bboxBottom, false, col);
 
 			DrawLine(ImgRegions.objects[o].centroidX-SizeCross, ImgRegions.objects[o].centroidY,
-					 ImgRegions.objects[o].centroidX+SizeCross, ImgRegions.objects[o].centroidY, RED);
+					 ImgRegions.objects[o].centroidX+SizeCross, ImgRegions.objects[o].centroidY, col);
 			DrawLine(ImgRegions.objects[o].centroidX, ImgRegions.objects[o].centroidY-SizeCross,
-								 ImgRegions.objects[o].centroidX, ImgRegions.objects[o].centroidY+SizeCross, RED);
+								 ImgRegions.objects[o].centroidX, ImgRegions.objects[o].centroidY+SizeCross, col);
 
 		}
+	}
+}
+
+enum ObjColor wichColor(int o){
+	int red = 0;
+	int blue = 0;
+	int c;
+	//get pointer to root run of current object
+	struct OSC_VIS_REGIONS_RUN* currentRun = ImgRegions.objects[o].root;
+	//loop over runs of current object
+	do {
+		//loop over pixel of current run
+		for(c = currentRun->startColumn; c <= currentRun->endColumn; c++) {
+			int r = currentRun->row;
+			//loop over color planes of pixel
+			red += data.u8TempImage[SENSORIMG][(r*nc+c)*NUM_COLORS+2];
+			blue += data.u8TempImage[SENSORIMG][(r*nc+c)*NUM_COLORS];
+		}
+		currentRun = currentRun->next; //get net run of current object
+	} while(currentRun != NULL); //end of current object
+
+	if(red>blue){
+		return RED;
+	}else{
+		return BLUE;
 	}
 }
 
 
 void ChangeDetection() {
 	const int NumFgrCol = 2;
-	uint8 FrgCol[2][3] = {{101,85,78}, {92,104,192}};
+	uint8 FrgCol[2][3] = {{52,113,177}, {41,142,116}};
 	int r, c, frg, p;
 	memset(data.u8TempImage[INDEX0], 0, IMG_SIZE);
 	memset(data.u8TempImage[BACKGROUND], 0, IMG_SIZE);
@@ -254,22 +310,7 @@ void ChangeDetection() {
 			}
 		}
 	}
-/*	for(r = 0; r < nr*nc; r += nc) {
-		//loop over the columns
-		for(c = 0; c < nc; c++) {
-			//get rgb values (order is actually bgr!)
-			float B_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+0];
-			float G_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+1];
-			float R_ = data.u8TempImage[SENSORIMG][(r+c)*NUM_COLORS+2];
-			uint8 Y_ = (uint8) ( 0 + 0.299*R_ + 0.587*G_ + 0.114*B_);
-			uint8 Cb_ = (uint8) (128 - 0.169*R_ - 0.331*G_ + 0.500*B_);
-			uint8 Cr_ = (uint8) (128 + 0.500*R_ - 0.419*G_ - 0.081*B_);
-			//we write result to XXX
-			data.u8TempImage[XXX][(r+c)*NUM_COLORS+0] = Y_;
-			data.u8TempImage[XXX][(r+c)*NUM_COLORS+1] = Cb_;
-			data.u8TempImage[XXX][(r+c)*NUM_COLORS+2] = Cr_;
-		}
-	}*/
+
 
 }
 
